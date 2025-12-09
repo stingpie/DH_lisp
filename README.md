@@ -9,6 +9,35 @@ Dollhouse is designed to encourage modular programming through automatically cre
 This model allows Dollhouse to easily detect isomorphic structure on different machines, and combine them together when two peers connect (essentially creating a shared machine.)  
 
 
+### Developer info:
+There are:
+1) Daemons:
+    Daemons are processes with an environment, an info registry entry, and interfaces.
+2) Info registry:
+    Gives info about Daemons. The registry is loaded at start up, and information about interfaces specifically.
+3) Interfaces:
+    The input/ouput port of a Daemon. They are one directional, contain the name of the interface, the datatype and format of the data it will transmit.
+4) Environments:
+    Environments are the groups of variables which an interpreter uses while running. Each daemon has a seperate environment, which contains both data and code. 
+5) Interlinks:
+    Interlinks are set up during Daemon initialization. They take a source and destination and direct data flow between the two.
+
+
+#### Internals:
+Each language has a few functions for interacting with Dollhouse. yield() halts the program and returns execution to the main loop. output(interface, data) puts data into the environments output buffer, labels the buffer with the interface name, and yields to the main loop. In addition, there is a registerInterface(interface, function) function which registers a function to be executed when the interface is given data.
+```
++----------+          INTERLINK         +----------+
+|DAEMON 1  |        _____/\_____        |DAEMON 2  |
+|          |____   /            \   ____|          |
+|onInput() |___< <---------------- <____|output()  <--- function
+|          |___                    _____|          |
+|output()  |___> ----------------> >____|onInput() <--- function
++----------+                            +----------+
+             /\                      /\
+          Interface              Interface
+```
+
+
 
 
 
