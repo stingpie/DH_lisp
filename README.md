@@ -37,8 +37,21 @@ Each language has a few functions for interacting with Dollhouse. yield() halts 
           Interface              Interface
 ```
 
+The main loop goes like this:
+```
+1) start()
+    +-- Create activeDaemonList, lispDaemons, and daemonInfoList.
+    +-- For each ".proc" file, createDaemonRegistry(file)
+    +-- startDaemon("main.lisp", "lisp")
+        +-- For each interface, find CorrespondingInterface(interface)
+            +-- registerInterlink(srcDaemon.interface, destDaemon.interface)
 
+2) Cycle()
+    +-- For each daemon, runDaemon(daemon)
+    |   +-- for each daemon.interlink, cycleInterlink(daemon.interlink)
+    +-- handle graphics, keyboard, signals, network.   
 
+```
 
 
 
