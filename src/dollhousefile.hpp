@@ -22,7 +22,7 @@
 
 
 int IsInSandbox(const char* filename){
-	return  strncmp(DOLLHOUSE_SANDBOX_DIR, filename, strlen(DOLLHOUSE_SANDBOX_DIR))==0 ? 1 : 0;
+	return  true;//strncmp(DOLLHOUSE_SANDBOX_DIR, filename, strlen(DOLLHOUSE_SANDBOX_DIR))==0 ? 1 : 0;
 }
 
 

@@ -91,18 +91,22 @@ void bootstrap(){
 
 
 
-void startDaemon(const char* filename, const char* language){
+int startDaemon(const char* filename, const char* language){
 
 
-	Daemon *newDaemon = (Daemon*)allocateHeap(sizeof(Daemon), activeDaemonList, activeDaemonListUsage, &activeDaemonListLen );
+	Daemon *newDaemon = (Daemon*)allocateDaemonHeap();
 
-	for(int i=0; i<DH_ID_LEN; i++) newDaemon->daemonID[i] = (char)(rand()%256);
 
+	strncpy(newDaemon->language, language, DH_LANG_LEN);
+	strncpy(newDaemon->name, filename, DH_DAEMON_NAME_LEN);
 
 
 	if(strcmp("lisp", language)==0){
+
+
+
 		// create lispenv
-		LISP::LispEnv *lispenv = (LISP::LispEnv*) allocateHeap(sizeof(LISP::LispEnv), lispDaemons, lispDaemonUsage, &lispDaemonNum);
+		LISP::LispEnv *lispenv = (LISP::LispEnv*) allocateLispEnvHeap();
 		memcpy(lispenv, LISP::NewLispEnvironment(8192, newDaemon), sizeof(LISP::LispEnv));
 		newDaemon->environment = lispenv;
 
@@ -118,36 +122,74 @@ void startDaemon(const char* filename, const char* language){
 
 
 		// load script into new lisenvLISP::
-		Buffer script = DH_read(filename);
+		lispenv->program = DH_read(filename); // DELETE BUFFER ON LISP DAEMON EXIT
 
-		char *buffer = (char*) calloc(sizeof(char), script.size+strlen("(eval (token %s ))"));
-		sprintf(buffer, "(eval (token %s ))", script.data);
-		lispenv->main_program = LISP::betterreadlisp(buffer, lispenv);
-
-		free(buffer);
-		eraseBuffer(script);
+		return 1;
 	}
 
 
-
+	return 0;
 
 	//free(scriptFilename);
 }
 
 
-void *allocateHeap(size_t size, void* list, uint8_t *listUsage, uint32_t *listLen ){
-	for(uint32_t i=0; i< *listLen; i++){
-		if(listUsage[i]==0){
-			listUsage[i]=1;
-			return ((uint8_t*)list) + i*size;
+void *allocateDaemonHeap(){
+	for(uint32_t i=0; i< activeDaemonListLen; i++){
+		if(activeDaemonListUsage[i]==0){
+
+			activeDaemonListUsage[i]=1;
+
+			return ((uint8_t*)activeDaemonList) + i;
 		}
 	}
-	*listLen+=HEAP_REALLOC_SIZE;
-	listUsage = (uint8_t*)realloc(listUsage, sizeof(uint8_t)*(*listLen));
-	list = (Daemon*)realloc(list, size*(*listLen));
-	memset(&listUsage[(*listLen)-HEAP_REALLOC_SIZE], 0, sizeof(uint8_t)*HEAP_REALLOC_SIZE);
-	return allocateHeap(size, list, listUsage, listLen);
+	activeDaemonListLen+=HEAP_REALLOC_SIZE;
+	activeDaemonListUsage = (uint8_t*)realloc(activeDaemonListUsage, sizeof(uint8_t)*activeDaemonListLen);
+	activeDaemonList = (Daemon*)realloc(activeDaemonList, sizeof(Daemon)*activeDaemonListLen);
+
+	memset(&activeDaemonListUsage[(activeDaemonListLen)-HEAP_REALLOC_SIZE], 0, sizeof(uint8_t)*HEAP_REALLOC_SIZE);
+	return allocateDaemonHeap();
 }
+
+void *allocateLispEnvHeap(){
+	for(uint32_t i=0; i< lispDaemonNum; i++){
+		if(lispDaemonUsage[i]==0){
+
+			lispDaemonUsage[i]=1;
+
+			return ((uint8_t*)lispDaemons) + i;
+		}
+	}
+	lispDaemonNum+=HEAP_REALLOC_SIZE;
+	lispDaemonUsage = (uint8_t*)realloc(lispDaemonUsage, sizeof(uint8_t)*lispDaemonNum);
+	lispDaemons = (LISP::LispEnv*)realloc(lispDaemons, sizeof(LISP::LispEnv)*lispDaemonNum);
+
+	memset(&lispDaemonUsage[(lispDaemonNum)-HEAP_REALLOC_SIZE], 0, sizeof(uint8_t)*HEAP_REALLOC_SIZE);
+
+	//printf(" alloc Usage: ");for(int k=0; k<*listLen; k++) printf(" %i ",listUsage[k]); printf("\n");
+
+	return allocateLispEnvHeap();
+
+}
+
+void *allocateDaemonInfoHeap(){
+	for(uint32_t i=0; i< daemonInfoListLen; i++){
+		if(daemonInfoListUsage[i]==0){
+
+			daemonInfoListUsage[i]=1;
+
+			return ((uint8_t*)activeDaemonList) + i;
+		}
+	}
+	daemonInfoListLen+=HEAP_REALLOC_SIZE;
+	daemonInfoListUsage = (uint8_t*)realloc(daemonInfoListUsage, sizeof(uint8_t)*daemonInfoListLen);
+	daemonInfoList = (DaemonInfo*)realloc(daemonInfoList, sizeof(DaemonInfo)*daemonInfoListLen);
+
+	memset(&daemonInfoListUsage[(daemonInfoListLen)-HEAP_REALLOC_SIZE], 0, sizeof(uint8_t)*HEAP_REALLOC_SIZE);
+	return allocateDaemonInfoHeap();
+}
+
+
 
 
 void createDaemonRegistryEntry(const char *filename){
@@ -175,8 +217,8 @@ void createDaemonRegistryEntry(const char *filename){
 	while((lineIndex = strstr(lineIndex, "interface:")) != nullptr){
 
 		char *charIndex=lineIndex;
-		while(*charIndex!='\n'){ // tokenize line.
-			if(*charIndex==',') *charIndex='\0';
+		while(*charIndex++!='\n'){ // tokenize line.
+			if(*charIndex==',') *charIndex ='\0';
 		}
 		lineIndex = strchr(lineIndex,':')+1;
 		strncpy( newinfo.interfaces[count].name, lineIndex, DH_INTERFACE_NAME_LEN);
@@ -240,18 +282,18 @@ DaemonInfo findCorrespondingInterface(Interface *interface){
 void cycleInterlink(Interlink interlink){
 	if(strcmp(interlink.src->language, "lisp")==0 ){
 		LISP::LispEnv *srcEnv=(LISP::LispEnv*)(interlink.src->environment);
-		if(srcEnv->outputName[0]==0  || srcEnv->output.size==0)  return; // src output buffer is empty.
+		if(srcEnv->outputName[0]==0  || srcEnv->output_buffer.size==0)  return; // src output buffer is empty.
 		if(strcmp(interlink.dest->language, "lisp")==0){
 			LISP::LispEnv * destEnv=(LISP::LispEnv*)(interlink.dest->environment);
 			if(strcmp(srcEnv->outputName, interlink.name)==0){
 				if(strcmp(interlink.type, "char")==0 && strcmp(interlink.format, "string")==0){
 
-					char *buffer = (char*) calloc(sizeof(char), strlen(interlink.name) + srcEnv->output.size+strlen("(%s \"%s\")"));
-					sprintf(buffer, "(%s \"%s\")", interlink.name, srcEnv->output.data);
+					char *buffer = (char*) calloc(sizeof(char), strlen(interlink.name) + srcEnv->output_buffer.size+strlen("(%s \"%s\")"));
+					sprintf(buffer, "(%s \"%s\")", interlink.name, srcEnv->output_buffer.data);
 					LISP::betterreadlisp(buffer, destEnv);
 					free(buffer);
-					free(srcEnv->output.data);
-					srcEnv->output.size=0;
+					free(srcEnv->output_buffer.data);
+					srcEnv->output_buffer.size=0;
 					srcEnv->outputName[0]=0;
 
 				}
@@ -264,28 +306,27 @@ void cycleInterlink(Interlink interlink){
 
 
 
-
-
-
 void registerDaemonInterface(Interface *interface){
 	interface->daemon->interface_num++;
 	interface->daemon->interfaces = (Interface*)realloc(interface->daemon->interfaces, sizeof(Interface)*interface->daemon->interface_num);
 }
 
-void killDaemon(){
+void killDaemon(Daemon){
 	// free all interfaces of daemon
 	// Designate Daemonlist entry as empty.
-	// erase lisp env
+	// erase lisp env, lisp program
 }
 
 
-void cycle(Daemon *daemonList, int daemonNum){
+void cycle(){
 
-	for(int i=0; i<daemonNum; i++){ // run through all daemons once.
-			runDaemon(daemonList[i]);
-			for(int j=0; j<daemonList[i].interlink_num; j++){ // handle IPC
-				cycleInterlink(daemonList[i].interlinks[j]);
+	for(int i=0; i<activeDaemonListLen; i++){ 	// run through all daemons once.
+		if(activeDaemonListUsage[i]){			// if the daemon is active
+			runDaemon(activeDaemonList[i]);
+			for(int j=0; j<activeDaemonList[i].interlink_num; j++){ // handle IPC
+				cycleInterlink(activeDaemonList[i].interlinks[j]);
 			}
+		}
 	}
 
 
@@ -297,12 +338,24 @@ void runDaemon(Daemon daemon){
 
 	if(strncmp(daemon.language, "lisp", 16)==0){
 		LISP::LispEnv *env = (LISP::LispEnv*) daemon.environment;
-		LISP::run(env->main_program, &env->env, env);
+		LISP::eval(LISP::readlisp(env), &env->env, env);
 	}
 }
 
 
-int main(){ return 0;
+int main(){
+	bootstrap();
+	startDaemon("dollhouse_sandbox/main.lisp", "lisp");
+
+	createDaemonRegistryEntry("dollhouse_sandbox/main.proc");
+
+	for(int k=0; k<activeDaemonListLen; k++) printf(" %i ",activeDaemonListUsage[k]); printf("\n");
+
+	while(1){
+		cycle();
+		return 0;
+	}
+
 }
 
 #endif

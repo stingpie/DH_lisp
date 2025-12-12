@@ -31,6 +31,7 @@
 #include <string.h>
 #include <setjmp.h>
 
+
 #include "dollhousefile.hpp"
 
 #ifdef HAVE_SIGNAL_H
@@ -63,7 +64,6 @@ void using_history() { }
 #ifndef DOLLHOUSE_HPP_
 #include "dollhouse.hpp"
 #endif
-
 
 
 namespace LISP{
@@ -156,7 +156,7 @@ typedef struct LispEnv{
 	L vars;
 	/* Lisp constant expressions () (nil), #t and the global environment env */
 	L nil, tru, env;
-	L main_program;
+    //char* main_program;
 
 
 	L *heap;
@@ -164,8 +164,20 @@ typedef struct LispEnv{
 	// dollhouse daemon
 	Daemon *daemon;
 	char yield; // if true, this lisp env wants to yield control.
-	Buffer output;
+	Buffer output_buffer;
 	char outputName[DH_INTERFACE_NAME_LEN];
+
+
+	Buffer program;
+	uint16_t prog_idx;
+
+
+	char buf[256], see = '\n', *ptr = "", *line = NULL, ps[20];
+
+	//uint16_t buf_size=0;
+
+//	I fin = 0;
+//	FILE *in[10];
 
 }LispEnv;
 
@@ -177,13 +189,16 @@ LispEnv *NewLispEnvironment(unsigned int size, Daemon *daemon){
 	LispEnv *new_environment=(LispEnv*)malloc(sizeof(LispEnv));//+sizeof(L)*2*size);
 	new_environment->heap = (L*)calloc(sizeof(L), 2*size);
 	new_environment->hp=0;
-	new_environment->tr=1;
+	new_environment->tr=0;
 	new_environment->cell = new_environment->heap;
 	new_environment->sp = size;
 	new_environment->N = size;
 	new_environment->daemon=daemon;
 	new_environment->yield = 0;
-	new_environment->output={0, nullptr};
+	new_environment->output_buffer={0, nullptr};
+	new_environment->see='\n';
+	new_environment->ptr="";
+	new_environment->line=NULL;
 	return new_environment;
 }
 
@@ -367,100 +382,107 @@ void print(L, LispEnv*);
 \*----------------------------------------------------------------------------*/
 
 /* the file(s) we are reading or fin=0 when reading from the terminal */
-I fin = 0;
-FILE *in[10];
+//I fin = 0;
+//FILE *in[10];
 
 /* specify an input file to parse and try to open it */
-FILE *input(const char *s) {
-  return fin <= 9 && (in[fin] = fopen(s, "r")) ? in[fin++] : NULL;
-}
+//FILE *input(const char *s, LispEnv *lispenv) {
+//  return lispenv->fin <= 9 && (lispenv->in[lispenv->fin] = fopen(s, "r")) ? lispenv->in[lispenv->fin++] : NULL;
+//}
 
 /* tokenization buffer, the next character we're looking at, the readline line, prompt and input file */
-char buf[256], see = '\n', *ptr = "", *line = NULL, ps[20];
+//char buf[256], see = '\n', *ptr = "", *line = NULL, ps[20];
 
 /* advance to the next character */
-void look() {
-  int c;
-  while (fin) {                                 /* if reading from a file */
-    see = c = getc(in[fin-1]);                  /* read a character */
-    if (c != EOF)
-      return;
-    fclose(in[--fin]);                          /* if end of file, then close the file and read previous open file */
-    see = '\n';                                 /* pretend we see a newline at eof */
-  }
-#ifdef HAVE_READLINE_H
-  if (see == '\n') {                            /* if looking at the end of the current readline line */
-    BREAK_OFF;                                  /* disable interrupt to prevent free() without final line = NULL */
-    if (line)                                   /* free the old line that was malloc'ed by readline */
-      free(line);
-    line = NULL;
-    BREAK_ON;                                   /* enable interrupt */
-    while (!(ptr = line = readline(ps)))        /* read new line and set ptr to start of the line */
-      freopen("/dev/tty", "r", stdin);          /* try again when line is NULL after EOF by CTRL-D */
-    add_history(line);                          /* make it part of the history */
-    strcpy(ps, "?");                            /* change prompt to ? */
-  }
-  if (!(see = *ptr++))
-    see = '\n';
-#else
-  if (see == '\n') {
-    printf("%s", ps);
-    strcpy(ps, "?");
-  }
-  if ((c = getchar()) == EOF) {
-    freopen("/dev/tty", "r", stdin);
-    c = '\n';
-  }
-  see = c;
-#endif
+void look(LispEnv *lispenv) {
+
+  lispenv->see = lispenv->program.data[lispenv->prog_idx++];
+  return;
 }
 
+//  int c;
+//
+//  while (lispenv->fin) {                                 /* if reading from a file */
+//	lispenv->see = c = getc(lispenv->in[lispenv->fin-1]);                  /* read a character */
+//    if (c != EOF)
+//      return;
+//    fclose(lispenv->in[--(lispenv->fin)]);                          /* if end of file, then close the file and read previous open file */
+//    lispenv->see = '\n';                                 /* pretend we see a newline at eof */
+//  }
+//#ifdef HAVE_READLINE_H
+//  if (lispenv->see == '\n') {                            /* if looking at the end of the current readline line */
+//    BREAK_OFF;                                  /* disable interrupt to prevent free() without final line = NULL */
+//    if (lispenv->line)                                   /* free the old line that was malloc'ed by readline */
+//      free(lispenv->line);
+//    lispenv->line = NULL;
+//    BREAK_ON;                                   /* enable interrupt */
+//    while (!(ptr = lispenv->line = readline(lispenv->ps)))        /* read new line and set ptr to start of the line */
+//      freopen("/dev/tty", "r", stdin);          /* try again when line is NULL after EOF by CTRL-D */
+//    add_history(lispenv->line);                          /* make it part of the history */
+//    strcpy(lispenv->ps, "?");                            /* change prompt to ? */
+//  }
+//  if (!(lispenv->see = *lispenv->ptr++))
+//	  lispenv->see = '\n';
+//#else
+//  if (lispenv->see == '\n') {
+//    printf("%s", lispenv->ps);
+//    strcpy(lispenv->ps, "?");
+//  }
+//  if ((c = getchar()) == EOF) {
+//    freopen("/dev/tty", "r", stdin);
+//    c = '\n';
+//  }
+//  lispenv->see = c;
+//#endif
+//}
+
 /* return nonzero if we are looking at character c, ' ' means any white space */
-I seeing(char c) {
-  return c == ' ' ? see > 0 && see <= c : see == c;
+I seeing(char c, LispEnv *lispenv) {
+  return c == ' ' ? lispenv->see > 0 && lispenv->see <= c : lispenv->see == c;
 }
 
 /* return the look ahead character from standard input, advance to the next */
-char get() {
-  char c = see;
-  look();
+char get(LispEnv* lispenv) {
+  char c = lispenv->see;
+  look(lispenv);
   return c;
 }
 
 /* tokenize into buf[], return first character of buf[] */
-char scan() {
+char scan(LispEnv *lispenv) {
   int i = 0;
-  while (seeing(' ') || seeing(';'))            /* skip white space and ;-comments */
-    if (get() == ';')
-      while (!seeing('\n'))                     /* skip ;-comment until newline */
-        look();
-  if (seeing('"')) {                            /* tokenize a quoted string */
+  while (seeing(' ',lispenv) || seeing(';',lispenv))            /* skip white space and ;-comments */
+    if (get(lispenv) == ';')
+      while (!seeing('\n',lispenv))                     /* skip ;-comment until newline */
+        look(lispenv);
+  if (seeing('"',lispenv)) {                            /* tokenize a quoted string */
     do {
-      buf[i++] = get();
-      while (seeing('\\') && i < sizeof(buf)-1) {
+      lispenv->buf[i++] = get(lispenv);
+      while (seeing('\\',lispenv) && i < sizeof(lispenv->buf)-1) {
         static const char *abtnvfr = "abtnvfr"; /* \a, \b, \t, \n, \v, \f, \r escape codes */
         const char *esc;
-        get();
-        esc = strchr(abtnvfr, see);
-        buf[i++] = esc ? esc-abtnvfr+7 : see;   /* replace \x with an escaped code or x itself */
-        get();
+        get(lispenv);
+        esc = strchr(abtnvfr, lispenv->see);
+        lispenv->buf[i++] = esc ? esc-abtnvfr+7 : lispenv->see;   /* replace \x with an escaped code or x itself */
+        get(lispenv);
       }
-    } while (i <  sizeof(buf)-1 && !seeing('"') && !seeing('\n'));
-    if (get() != '"')
+    } while (i <  sizeof(lispenv->buf)-1 && !seeing('"',lispenv) && !seeing('\n',lispenv));
+    if (get(lispenv) != '"')
       ERR(8, "missing \" ");
   }
-  else if (seeing('(') || seeing(')') || seeing('\'') || seeing('`') || seeing(','))
-    buf[i++] = get();                           /* ( ) ' ` , are single-character tokens */
+  else if (seeing('(',lispenv) || seeing(')',lispenv) || seeing('\'',lispenv) || seeing('`',lispenv) || seeing(',',lispenv))
+	  lispenv->buf[i++] = get(lispenv);                           /* ( ) ' ` , are single-character tokens */
   else                                          /* tokenize a symbol or a number */
-    do buf[i++] = get();
-    while (i <  sizeof(buf)-1 && !seeing('(') && !seeing(')') && !seeing(' '));
-  buf[i] = 0;
-  return *buf;                                  /* return first character of token in buf[] */
+    do lispenv->buf[i++] = get(lispenv);
+    while (i <  sizeof(lispenv->buf)-1 && !seeing('(',lispenv) && !seeing(')',lispenv) && !seeing(' ',lispenv));
+  lispenv->buf[i] = 0;
+
+  return *lispenv->buf;                                  /* return first character of token in buf[] */
 }
 
 
 
-
+/* tokenize */
 Buffer tokenize(const char* string, Buffer buf) {
   int i = 0;
   char *string_idx;
@@ -469,7 +491,7 @@ Buffer tokenize(const char* string, Buffer buf) {
 	  if (*string_idx==';')
 		  string_idx = strchr(string_idx, '\n');
   }
-  if (*string_idx == '"'){//seeing('"')) {                            /* tokenize a quoted string */
+  if (*string_idx == '"'){                            /* tokenize a quoted string */
     do {
       buf.data[i++] = *(string_idx++);
       while ((*string_idx=='\\') && i < buf.size-1) {
@@ -498,9 +520,43 @@ Buffer tokenize(const char* string, Buffer buf) {
 
 
 
+/*
+L betterreadlisp2(const char* string, LispEnv *lispenv){
+	Buffer buffer;
+	buffer.size = strlen(string); // tokenized string won't be bigger than original string.
+	buffer.data=(char*)calloc(sizeof(char), buffer.size);
+	buffer = tokenize(string, buffer);
+
+	for(int i=0; i<buffer.size; i++){
+		switch (buffer.data[i]) {
+			case '(':  return list(lispenv);                   // if token is ( then parse a list
+			//case '\'': x = pair(readlisp(lispenv), lispenv->nil, lispenv);       // construct singleton first, may trigger GC
+			//		   return pair(atom("quote", lispenv), x, lispenv);   // if token is ' then quote an expression
+			//case '`':  scan(); return bettertick(lispenv);           // if token is a ` then list/quote-convert an expression
+			case '"':  return string(buffer.data+1, lispenv);            // if token is a string, then return a new string
+			case ')':  return ERR(8, "unexpected ) ");
+		  }
+		if (sscanf(buf.data, "%lg%n", &x, &i) > 0 && !buf.data[i])
+			return x;
+	}
+
+
+}
+
+
+*/
+
+
+
+
+
+
+
+
+
 /* return the Lisp expression parsed and read from input */
 L readlisp(LispEnv *lispenv) {
-  scan();
+  scan(lispenv);
   return parse(lispenv);
 }
 
@@ -520,10 +576,10 @@ L betterreadlisp(const char* string, LispEnv *lispenv){
 L list(LispEnv *lispenv) {
   L t = lispenv->nil, p = lispenv->nil, x;
   var(2, lispenv, &t, &p);
-  while (scan() != ')') {
-    if (*buf == '.' && !buf[1]) {               /* parse list with dot pair ( <expr> ... <expr> . <expr> ) */
+  while (scan(lispenv) != ')') {
+    if (*lispenv->buf == '.' && !lispenv->buf[1]) {               /* parse list with dot pair ( <expr> ... <expr> . <expr> ) */
       x = readlisp(lispenv);                           /* read expression to replace the last nil at the end of the list */
-      if (scan() != ')')
+      if (scan(lispenv) != ')')
         ERR(8, "expecting ) ");
       *(T(p) == PAIR ? &NEXT(p, lispenv) : &t) = x;
       break;
@@ -534,21 +590,43 @@ L list(LispEnv *lispenv) {
   return return_value(2, t, lispenv);
 }
 
+
+/*
+L betterlist(Buffer buffer, LispEnv *lispenv) {
+  L t = lispenv->nil, p = lispenv->nil, x;
+  var(2, lispenv, &t, &p);
+  int i=0;
+  while (buffer[i] != ')') {
+    if (buffer[i] == '.' && !buf[1]) {               // parse list with dot pair ( <expr> ... <expr> . <expr> )
+      x = betterreadlisp(buffer, lispenv);                           // read expression to replace the last nil at the end of the list
+      if (buffer[i] != ')')
+        ERR(8, "expecting ) ");
+      *(T(p) == PAIR ? &NEXT(p, lispenv) : &t) = x;
+      break;
+    }
+    x = pair(betterParse(buffer, lispenv), lispenv->nil, lispenv);                     // next parsed expression for the list, construct before using p and t
+    p = *(T(p) == PAIR ? &NEXT(p, lispenv) : &t) = x;     // p is the cdr or head of the list to replace with rest of the list
+  }
+  return return_value(2, t, lispenv);
+}
+
+*/
+
 /* return a list/quote-converted Lisp expression (backquote aka. backtick) */
 L tick(LispEnv *lispenv) {
   L t = lispenv->nil, p = lispenv->nil, x;
-  if (*buf == ',')
+  if (*lispenv->buf == ',')
     return readlisp(lispenv);                          /* parse and return Lisp expression */
-  if (*buf != '(') {
+  if (*lispenv->buf != '(') {
     x = pair(parse(lispenv), lispenv->nil, lispenv);                     /* construct singleton first, may trigger GC */
     return pair(atom("quote", lispenv), x, lispenv);              /* parse expression and return (quote <expr>) */
   }
   var(2, lispenv, &t, &p);
   t = p = pair(atom("list", lispenv), lispenv->nil, lispenv);
-  while (scan() != ')') {
-    if (*buf == '.' && !buf[1]) {               /* tick list with dot pair ( <expr> ... <expr> . <expr> ) */
+  while (scan(lispenv) != ')') {
+    if (*lispenv->buf == '.' && !lispenv->buf[1]) {               /* tick list with dot pair ( <expr> ... <expr> . <expr> ) */
       x = readlisp(lispenv);                           /* read expression to replace the last nil at the end of the list */
-      if (scan() != ')')
+      if (scan(lispenv) != ')')
         ERR(8, "expecing ) ");
       *(T(p) == PAIR ? &NEXT(p,lispenv) : &t) = x;
       break;
@@ -592,17 +670,17 @@ L bettertick(Buffer buf, LispEnv *lispenv) {
 /* return a parsed Lisp expression */
 L parse(LispEnv *lispenv) {
   L x; int i;
-  switch (*buf) {
+  switch (*lispenv->buf) {
     case '(':  return list(lispenv);                   /* if token is ( then parse a list */
     case '\'': x = pair(readlisp(lispenv), lispenv->nil, lispenv);       /* construct singleton first, may trigger GC */
                return pair(atom("quote", lispenv), x, lispenv);   /* if token is ' then quote an expression */
-    case '`':  scan(); return tick(lispenv);           /* if token is a ` then list/quote-convert an expression */
-    case '"':  return string(buf+1, lispenv);            /* if token is a string, then return a new string */
+    case '`':  scan(lispenv); return tick(lispenv);           /* if token is a ` then list/quote-convert an expression */
+    case '"':  return string(lispenv->buf+1, lispenv);            /* if token is a string, then return a new string */
     case ')':  return ERR(8, "unexpected ) ");
   }
-  if (sscanf(buf, "%lg%n", &x, &i) > 0 && !buf[i])
+  if (sscanf(lispenv->buf, "%lg%n", &x, &i) > 0 && !lispenv->buf[i])
     return x;                                   /* return a number, including inf, -inf and nan */
-  return atom(buf, lispenv);                             /* return an atom (a symbol) */
+  return atom(lispenv->buf, lispenv);                             /* return an atom (a symbol) */
 }
 
 
@@ -635,7 +713,7 @@ L betterParse(Buffer buf, LispEnv *lispenv){
 \*----------------------------------------------------------------------------*/
 
 /* the file we are writing to, stdout by default */
-FILE *out;
+FILE *out = stdout;
 
 
 
@@ -903,7 +981,7 @@ L f_string(P t, P e, LispEnv *lispenv) {
       for (; T(y) == PAIR; y = next(y, lispenv))
         ++n;
     else if (y == y)
-      n += snprintf(buf, sizeof(buf), FLOAT, y);
+      n += snprintf(lispenv->buf, sizeof(lispenv->buf), FLOAT, y);
   }
   x = alloc(STRING, n+1, lispenv);
   n = ord(x);
@@ -915,7 +993,7 @@ L f_string(P t, P e, LispEnv *lispenv) {
       for (; T(y) == PAIR; y = next(y, lispenv))
         *(A(lispenv)+n++) = first(y, lispenv);
     else if (y == y)
-      n += snprintf(A(lispenv)+n, sizeof(buf), FLOAT, y);
+      n += snprintf(A(lispenv)+n, sizeof(lispenv->buf), FLOAT, y);
   }
   *(A(lispenv)+n) = 0;
   return x;
@@ -996,7 +1074,7 @@ L f_register_interface(P t, P e, LispEnv *lispenv){
 
 	char *interface_name =	A(lispenv)+ord(f_string(&FIRST(*t, lispenv), e, lispenv));
 
-	char *interface_type = 	A(lispenv)+ord(f_string(&FIRST(next(*t,lispenv), lispenv), e, lispenv));
+	char *interface_type = 	A(lispenv)+ord(f_string(&FIRST(next(*t, lispenv), lispenv), e, lispenv));
 	char *interface_format =A(lispenv)+ord(f_string(&FIRST(next(next(*t,lispenv),lispenv), lispenv), e, lispenv));
 
 	uint8_t direction = ord(first(next(next(next(next(*t,lispenv),lispenv),lispenv),lispenv), lispenv));
@@ -1016,7 +1094,18 @@ L f_register_interface(P t, P e, LispEnv *lispenv){
 
 
 
+L f_evoke(P t, P e, LispEnv *lispenv){
+	L filename_idx = f_string(&FIRST(*t, lispenv), e, lispenv);
+	L language_idx = f_string(&NEXT(*t, lispenv), e, lispenv);
 
+	char filename[DH_DAEMON_NAME_LEN];
+	char language[DH_LANG_LEN];
+
+	strncpy(filename, A(lispenv) + ord(filename_idx), DH_DAEMON_NAME_LEN);
+	strncpy(language, A(lispenv) + ord(language_idx), DH_LANG_LEN);
+
+	return box( ATOM, startDaemon(filename, language)); // return 1 if successful
+}
 
 
 L f_yield(P t, P e, LispEnv *lispenv){
@@ -1026,9 +1115,49 @@ L f_yield(P t, P e, LispEnv *lispenv){
 
 
 
+// t is a pair (<name>, <data>) where <name> contains the interface name, and <data> contains the actual info.
+// returns the number of bytes outputed.
 L f_output(P t, P e, LispEnv *lispenv){
-	lispenv->output = output(*t, lispenv);
-	return f_yield(t, e, lispenv);
+
+	L name = f_string(&FIRST(*t, lispenv), e, lispenv);
+
+	// check if the interface exists
+	uint8_t isInterface=false;
+	for(int i=0; i<lispenv->daemon->interface_num; i++){
+		if(strcmp(lispenv->daemon->interfaces[i].name, A(lispenv)+ord(name))){
+			isInterface=true;
+			break;
+		}
+	}
+	if(!isInterface) return box(ATOM, 0); // return 0 if the interface does not exist
+
+	Buffer newbuffer; // will be freed by cycleInterface
+	if(T(NEXT(*t, lispenv)) == STRING ){ // the output is a simple string
+		L data = f_string(&NEXT(*t, lispenv), e, lispenv);
+		newbuffer.size = strlen(A(lispenv)+ord(data));
+		strncpy(newbuffer.data, A(lispenv)+ord(data), newbuffer.size);
+		strncpy(lispenv->outputName, A(lispenv)+ord(name), DH_INTERFACE_NAME_LEN);
+		memcpy(&(lispenv->output_buffer), &newbuffer, sizeof(Buffer));
+	}else if(T(NEXT(*t, lispenv))==PAIR) {
+
+		L data = NEXT(*t, lispenv);
+		// get length of buffer needed
+		int count=0;
+		L cell = data;
+		while((cell = next(cell, lispenv))!=lispenv->nil) count++;
+		newbuffer.size = count+1;
+
+
+		count=0;
+		while((data = next(data, lispenv))!=lispenv->nil){
+			newbuffer.data[count]=ord(first(data, lispenv));
+			count++;
+		}
+		strncpy(lispenv->outputName, A(lispenv)+ord(name), DH_INTERFACE_NAME_LEN);
+		memcpy(&(lispenv->output_buffer), &newbuffer, sizeof(Buffer));
+	}
+
+	return box(ATOM, newbuffer.size);
 }
 
 
@@ -1225,6 +1354,9 @@ L eval(L x, P e, LispEnv *lispenv) {
     return step(x, e, lispenv);
   var(1, lispenv, &x);                                   /* register var x to display later again */
   y = step(x, e, lispenv);
+
+  if(lispenv->tr>1) printf("X: %i str: %s\n",ord(x), A(lispenv)+ord(x));
+  if(lispenv->tr>1) printf("Y: %i str: %s\n",ord(y), A(lispenv)+ord(y));
   printf("\e[32m%4d: \e[33m", state.n); print(x, lispenv);       /* <vars>: unevaluated expression */
   printf("\e[36m => \e[33m");           print(y, lispenv);       /* => value of the expression */
   printf("\e[m\t");
@@ -1255,41 +1387,6 @@ void printlist(L t, LispEnv *lispenv) {
     putc(' ', out);
   }
   putc(')', out);
-}
-
-
-
-
-// t is a pair (<name>, <data>) where <name> contains the interface name, and <data> contains the actual info.
-Buffer output(L t, LispEnv *lispenv){
-	L name = first(t, lispenv);
-	L data = next(t, lispenv);
-
-
-
-	Buffer newbuffer;
-	if(T(data)==STRING){ // the output is a simple string
-		newbuffer.size = strlen(A(lispenv)+ord(data));
-		strncpy(newbuffer.data, A(lispenv)+ord(data), newbuffer.size);
-		strncpy(lispenv->outputName, A(lispenv)+ord(data), DH_INTERFACE_NAME_LEN);
-		return newbuffer;
-	}
-
-	// get length of buffer needed
-	int count=0;
-	L cell = data;
-	while((cell = next(cell, lispenv))!=lispenv->nil) count++;
-	newbuffer.size = count+1;
-
-
-	count=0;
-	while((data = next(data, lispenv))!=lispenv->nil){
-		newbuffer.data[count]=ord(first(data, lispenv));
-		count++;
-	}
-	strncpy(lispenv->outputName, A(lispenv)+ord(data), DH_INTERFACE_NAME_LEN);
-	return newbuffer;
-
 }
 
 

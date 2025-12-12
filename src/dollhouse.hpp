@@ -34,7 +34,10 @@ struct DaemonInfo;
 
 void runDaemon(struct Daemon);
 void registerDaemonInterface(struct Interface*);
-void *allocateHeap(size_t, void*, uint8_t*, uint32_t*);
+void *allocateDaemonHeap();
+void *allocateDaemonInfoHeap();
+void *allocateLispEnvHeap();
+int startDaemon(const char*, const char*);
 
 typedef struct Message{ // fits within 256 bytes
 	char srcID[DH_ID_LEN], destID[DH_ID_LEN], msgID[DH_ID_LEN]; 	// unique IDs identifying daemons and messages. (2^48 possible values.)
