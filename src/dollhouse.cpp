@@ -107,7 +107,7 @@ int startDaemon(const char* filename, const char* language){
 
 		// create lispenv
 		LISP::LispEnv *lispenv = (LISP::LispEnv*) allocateLispEnvHeap();
-		memcpy(lispenv, LISP::NewLispEnvironment(8192, newDaemon), sizeof(LISP::LispEnv));
+		memcpy(lispenv, LISP::NewLispEnvironment(1<<12, newDaemon), sizeof(LISP::LispEnv));
 		newDaemon->environment = lispenv;
 
 		// set up lispenv
@@ -122,7 +122,7 @@ int startDaemon(const char* filename, const char* language){
 
 
 		// load script into new lisenvLISP::
-		lispenv->program = DH_read(filename); // DELETE BUFFER ON LISP DAEMON EXIT
+		lispenv->program_stack[0] = DH_read(filename); // DELETE BUFFER ON LISP DAEMON EXIT
 
 		return 1;
 	}
@@ -178,7 +178,7 @@ void *allocateDaemonInfoHeap(){
 
 			daemonInfoListUsage[i]=1;
 
-			return ((uint8_t*)activeDaemonList) + i;
+			return ((uint8_t*)daemonInfoList) + i;
 		}
 	}
 	daemonInfoListLen+=HEAP_REALLOC_SIZE;
@@ -196,7 +196,7 @@ void createDaemonRegistryEntry(const char *filename){
 
 	Buffer metadata = DH_read(filename); // this file contains the metadata about the script
 
-	DaemonInfo newinfo;
+	DaemonInfo *newinfo = (DaemonInfo*)allocateDaemonInfoHeap();
 
 	// split metadata file along new lines,
 	// <Label>: <field>, <field> \n
@@ -205,8 +205,8 @@ void createDaemonRegistryEntry(const char *filename){
 	unsigned int interfaces=0;
 	char* lineIndex=metadata.data;
 	while((lineIndex = strstr(lineIndex, "interface:")) != nullptr){ interfaces++; lineIndex++;} // count the number of interfaces.
-	newinfo.interface_num=interfaces;
-	newinfo.interfaces= (Interface*)calloc(sizeof(Interface), interfaces);
+	newinfo->interface_num=interfaces;
+	newinfo->interfaces= (Interface*)calloc(sizeof(Interface), interfaces);
 
 
 	// construct each interface.
@@ -221,29 +221,33 @@ void createDaemonRegistryEntry(const char *filename){
 			if(*charIndex==',') *charIndex ='\0';
 		}
 		lineIndex = strchr(lineIndex,':')+1;
-		strncpy( newinfo.interfaces[count].name, lineIndex, DH_INTERFACE_NAME_LEN);
+		strncpy( newinfo->interfaces[count].name, lineIndex, DH_INTERFACE_NAME_LEN);
 		lineIndex = strchr(lineIndex,'\0')+1;
-		strncpy( newinfo.interfaces[count].type, lineIndex, DH_TYPE_LEN);
+		strncpy( newinfo->interfaces[count].type, lineIndex, DH_TYPE_LEN);
 		lineIndex = strchr(lineIndex,'\0')+1;
-		strncpy( newinfo.interfaces[count].format, lineIndex, DH_FORMAT_LEN);
-		newinfo.interfaces[count].direction = atoi(lineIndex); // 0 is out, 1 is in
+		strncpy( newinfo->interfaces[count].format, lineIndex, DH_FORMAT_LEN);
 		lineIndex = strchr(lineIndex,'\0')+1;
-		newinfo.interfaces[count].triggering = atoi(lineIndex); // 0 does not trigger, 1 does.
+		newinfo->interfaces[count].direction = *lineIndex=='1'; // 0 is out, 1 is in
+		lineIndex = strchr(lineIndex,'\0')+1;
+		newinfo->interfaces[count].triggering = *lineIndex=='1'; // 0 does not trigger, 1 does.
 	}
 
-	lineIndex = strstr(metadata.data, "name:");
-	char* lineEnd = strchr(lineIndex, '\n');
-	uint8_t name_len = (lineEnd-lineIndex) > DH_DAEMON_NAME_LEN ?  DH_DAEMON_NAME_LEN : lineEnd-lineIndex;
-	memcpy(newinfo.name, lineEnd, name_len);
-
+	lineIndex = strstr(metadata.data, "name");
+	unsigned int len = strcspn(strchr(lineIndex,':')+1,"\n");
+	memcpy(newinfo->name, strchr(lineIndex,':')+1, len>DH_INTERFACE_NAME_LEN ? DH_INTERFACE_NAME_LEN : len);
 
 	lineIndex = strstr(metadata.data, "filename:");
-	name_len = (lineEnd-lineIndex) > DH_DAEMON_NAME_LEN ?  DH_DAEMON_NAME_LEN : lineEnd-lineIndex;
-	memcpy(newinfo.scriptname, lineEnd, name_len);
+	len = strcspn(strchr(lineIndex,':')+1,"\n");
+	memcpy(newinfo->scriptname, strchr(lineIndex,':')+1, len>DH_INTERFACE_NAME_LEN ? DH_INTERFACE_NAME_LEN : len);
+
+	lineIndex = strstr(metadata.data, "language:");
+	len = strcspn(strchr(lineIndex,':')+1,"\n");
+	memcpy(newinfo->language, strchr(lineIndex,':')+1, len>DH_LANG_LEN? DH_LANG_LEN : len);
 
 
 	free(textcopy);
 	eraseBuffer(metadata);
+
 
 }
 
@@ -347,13 +351,12 @@ int main(){
 	bootstrap();
 	startDaemon("dollhouse_sandbox/main.lisp", "lisp");
 
-	createDaemonRegistryEntry("dollhouse_sandbox/main.proc");
+	createDaemonRegistryEntry("dollhouse_sandbox/main.daemon");
 
 	for(int k=0; k<activeDaemonListLen; k++) printf(" %i ",activeDaemonListUsage[k]); printf("\n");
 
 	while(1){
 		cycle();
-		return 0;
 	}
 
 }

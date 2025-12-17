@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+
+#define DH_FILENAME_LEN 64
+
 typedef struct Buffer{
 	unsigned int size;
 	char *data;
@@ -18,7 +21,12 @@ typedef struct Buffer{
 
 
 
+#include "dollhousefile.hpp"
+
+
+
 #define DH_DAEMON_NAME_LEN 64
+#define DH_FILENAME_LEN 64
 #define DH_INTERFACE_NAME_LEN 16
 #define DH_LANG_LEN 16
 #define DH_TYPE_LEN 16
@@ -65,6 +73,7 @@ typedef struct Daemon{
 	struct Interlink *interlinks;
 	void *environment;
 	DaemonInfo *info;
+	Dibs *dibs;
 }Daemon;
 
 typedef struct DaemonInfo{

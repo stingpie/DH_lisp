@@ -60,6 +60,7 @@ void using_history() { }
 #define ALWAYS_GC 0
 #endif
 
+#define MAX_GOSUB_RECURSE 10
 
 #ifndef DOLLHOUSE_HPP_
 #include "dollhouse.hpp"
@@ -168,8 +169,9 @@ typedef struct LispEnv{
 	char outputName[DH_INTERFACE_NAME_LEN];
 
 
-	Buffer program;
-	uint16_t prog_idx;
+	Buffer program_stack[MAX_GOSUB_RECURSE];
+	uint16_t prog_idx_stack[MAX_GOSUB_RECURSE];
+	uint8_t prog_stack_idx;
 
 
 	char buf[256], see = '\n', *ptr = "", *line = NULL, ps[20];
@@ -189,7 +191,7 @@ LispEnv *NewLispEnvironment(unsigned int size, Daemon *daemon){
 	LispEnv *new_environment=(LispEnv*)malloc(sizeof(LispEnv));//+sizeof(L)*2*size);
 	new_environment->heap = (L*)calloc(sizeof(L), 2*size);
 	new_environment->hp=0;
-	new_environment->tr=0;
+	new_environment->tr=1;
 	new_environment->cell = new_environment->heap;
 	new_environment->sp = size;
 	new_environment->N = size;
@@ -199,6 +201,7 @@ LispEnv *NewLispEnvironment(unsigned int size, Daemon *daemon){
 	new_environment->see='\n';
 	new_environment->ptr="";
 	new_environment->line=NULL;
+	new_environment->prog_stack_idx;
 	return new_environment;
 }
 
@@ -206,6 +209,23 @@ LispEnv *NewLispEnvironment(unsigned int size, Daemon *daemon){
 void EraseLispEnvironment(LispEnv *lispenv){
 	free(lispenv->heap);
 	free(lispenv);
+}
+
+void print(L, LispEnv*);
+
+void debugHeapPrint(int idx, int len, LispEnv *lispenv){
+	for(int i=0; i<len; i++){
+		if(i%64==0) printf("\n%i: ",i+idx);
+		printf("%c", A(lispenv)+i+idx);
+	}
+	printf("\n");
+}
+void debugHeapPrintType(int idx, int len, LispEnv *lispenv){
+	for(int i=0; i<len; i++){
+		if(i%64==0) printf("\n%i: ",i+idx);
+		printf("%x", T( *((P)(A(lispenv)+i+idx))));
+	}
+	printf("\n");
 }
 
 
@@ -323,7 +343,9 @@ L next(L p, LispEnv *lispenv) {
 /* construct a pair to add to environment *e, returns the list ((v . x) . *e) */
 L env_pair(L v, L x, P e, LispEnv *lispenv) {
   L p = pair(v, x, lispenv);                             /* construct the pair (v . x) first, may trigger GC of *e */
-  return pair(p, *e, lispenv);                           /* construct the list ((v . x) . *e) with a GC-updated *e */
+  L ret =pair(p, *e, lispenv);                           /* construct the list ((v . x) . *e) with a GC-updated *e */
+  //print(ret, lispenv);
+  return ret;
 }
 
 /* construct a closure, returns a NaN-boxed CLOSURE */
@@ -338,8 +360,15 @@ L macro(L v, L x, LispEnv *lispenv) {
 
 /* look up a symbol in an environment, return its value or ERR if not found */
 L assoc(L v, L e, LispEnv *lispenv) {
+  if(strlen(A(lispenv)+ord(v))==0) return lispenv->nil; // empty atoms are nil.
+
   while (T(e) == PAIR && !equ(v, first(first(e, lispenv), lispenv)))
     e = next(e, lispenv);
+
+
+  printf("heap @: %i\n", ord(v));
+  //if(ord(v)==2850)
+  //  debugHeapPrint(0,1<<12, lispenv);
   return T(e) == PAIR ? next(first(e, lispenv), lispenv) : T(v) == ATOM ? ERR(3, "unbound %s ", A(lispenv)+ord(v)) : err(3);
 }
 
@@ -396,7 +425,7 @@ void print(L, LispEnv*);
 /* advance to the next character */
 void look(LispEnv *lispenv) {
 
-  lispenv->see = lispenv->program.data[lispenv->prog_idx++];
+  lispenv->see = lispenv->program_stack[lispenv->prog_stack_idx].data[lispenv->prog_idx_stack[lispenv->prog_stack_idx]++];
   return;
 }
 
@@ -556,6 +585,8 @@ L betterreadlisp2(const char* string, LispEnv *lispenv){
 
 /* return the Lisp expression parsed and read from input */
 L readlisp(LispEnv *lispenv) {
+  //printf("%s", lispenv->program_stack[lispenv->prog_stack_idx].data+lispenv->prog_idx_stack[lispenv->prog_stack_idx]);
+  printf("%s\n", lispenv->ptr);
   scan(lispenv);
   return parse(lispenv);
 }
@@ -862,12 +893,16 @@ L f_macro(P t, P e, LispEnv *lispenv) {
 
 L f_define(P t, P e, LispEnv *lispenv) {
   L x = eval(first(next(*t, lispenv), lispenv), e, lispenv), v = first(*t, lispenv), d;
+
   for (d = *e; T(d) == PAIR && !equ(v, first(first(d, lispenv), lispenv)); d = next(d, lispenv))
     continue;
   if (T(d) == PAIR)
     NEXT(first(d, lispenv), lispenv) = x;
   else
 	lispenv->env = env_pair(v, x, &lispenv->env, lispenv);
+
+  print(lispenv->env, lispenv);
+
   return first(*t, lispenv);
 }
 
@@ -999,23 +1034,69 @@ L f_string(P t, P e, LispEnv *lispenv) {
   return x;
 }
 
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+//TODO: ###################################################################################################################################################
+void gosub(P t, P e, LispEnv *lispenv) {
+  if(lispenv->prog_stack_idx<MAX_GOSUB_RECURSE){
+	  L x =f_string(t, e, lispenv);
+	  //eraseBuffer(lispenv->program_stack);
+	  lispenv->prog_stack_idx++;
+	  lispenv->program_stack[lispenv->prog_stack_idx].size=strlen(A(lispenv)+ord(x))+strlen("(eval\n") + strlen("\n)");
 
 
-/*L f_read(P t, P _, LispEnv *lispenv) {
-  L x; char c = see;
-  see = ' ';
-  *ps = 0;
-  x = readlisp(lispenv);
-  see = c;
-  return x;
-}*/
+	  lispenv->program_stack[lispenv->prog_stack_idx].data=(char*)calloc(sizeof(char),lispenv->program_stack[lispenv->prog_stack_idx].size);
+	  memset(lispenv->program_stack[lispenv->prog_stack_idx].data,  '\0', lispenv->program_stack[lispenv->prog_stack_idx].size);
+
+	  //basically, a macro.
+	  strcpy(lispenv->program_stack[lispenv->prog_stack_idx].data,"(eval\n");
+	  strcpy(strchr(lispenv->program_stack[lispenv->prog_stack_idx].data,'\0'), A(lispenv)+ord(x));
+	  strcpy(strchr(lispenv->program_stack[lispenv->prog_stack_idx].data,'\0'), "\n)");
+
+	  printf("%s\n", lispenv->program_stack[lispenv->prog_stack_idx].data);
+
+	  lispenv->prog_idx_stack[lispenv->prog_stack_idx]=0;
+
+	  L ast = readlisp(lispenv);
+
+	  //var(1, lispenv, ast);
+
+	  L ret = eval(ast, e, lispenv);
+
+	  free(lispenv->program_stack[lispenv->prog_stack_idx].data);
+	  lispenv->prog_stack_idx--;
+
+
+
+	  //unwind(1, lispenv);
+
+  }
+
+}
+
+L f_gosub(P t, P e, LispEnv *lispenv){
+	gosub(t, e, lispenv);
+	//unwind(1, lispenv);
+	return lispenv->nil;
+}
+
 
 // read data from file.
 L f_read(P t, P e, LispEnv *lispenv){
 
   L x =f_string(t, e, lispenv);
   Buffer data = DH_read(A(lispenv)+ord(x));
-  printf("Data: %s Size: %i",(char*)data.data, data.size);
+  // add null terminator.
+  data.data = (char*)realloc(data.data, data.size+1);
+  data.data[data.size++]='\0';
+  //printf("Data: %s Size: %i",(char*)data.data, data.size);
   if(data.size>0)
 	  return dup_n(ATOM, (char*)data.data, data.size, lispenv);
   return lispenv->nil;
@@ -1029,10 +1110,11 @@ L f_load(P t, P e, LispEnv *lispenv) {
 }
 */
 
+/*
 L f_token(P t, P e, LispEnv *lispenv){
 	L x =f_string(t, e, lispenv);
-	return betterreadlisp(A(lispenv)+ord(x), lispenv);
-}
+	return readlisp(A(lispenv)+ord(x), lispenv);
+}*/
 
 L f_trace(P t, P e, LispEnv *lispenv) {
   I savedtr = lispenv->tr;
@@ -1160,7 +1242,19 @@ L f_output(P t, P e, LispEnv *lispenv){
 	return box(ATOM, newbuffer.size);
 }
 
-
+#define LISP_INPUT_BUFFER_SIZE 1024
+L f_input(P t, P e, LispEnv *lispenv){
+	char *input_buffer=(char*)malloc(LISP_INPUT_BUFFER_SIZE);
+	char input_char=' ';
+	uint16_t idx=0;
+	while((input_char=getc(stdin))!='\n' && idx<LISP_INPUT_BUFFER_SIZE){
+		input_buffer[idx++]=input_char;
+	}
+	input_buffer[idx++]='\0';
+	L x = string(input_buffer, lispenv);
+	free(input_buffer);
+	return x;
+}
 
 
 
@@ -1211,75 +1305,16 @@ struct {
   {"write",    f_write,   0},                   /* (write x1 x2 ... xk) => () -- prints without quoting strings */
   {"string",   f_string,  0},                   /* (string x1 x2 ... xk) => <string> -- string of x1 x2 ... xk */
 //  {"load",     f_load,    0},                   /* (load <name>) -- loads file <name> (an atom or string name) */
-  {"token",	   f_token,	  0},					// convert string to lisp tokens
+  {"gosub",	   f_gosub,	  1},			// Enter a subroutine
+//  {"return",   f_return,  0},
   {"trace",    f_trace,   0},                   /* (trace flag [<expr>]) -- flag 0=off, 1=on, 2=keypress */
   {"catch",    f_catch,   0},                   /* (catch <expr>) => <value-of-expr> if no exception else (ERR . n) */
   {"throw",    f_throw,   0},                   /* (throw n) -- raise exception error code n (integer != 0) */
   {"quit",     f_quit,    0},                   /* (quit) -- bye! */
+  {"yield",	   f_yield,   0},					// return execution to the caller.
+  {"output",   f_output,  0},                   // (output name data) output <data> to interface <name>
+  {"input",	   f_input,   0},
   {0}};
-
-
-
-L run(L, P, LispEnv*);
-L run(L x, P e, LispEnv *lispenv){
-  L f = lispenv->nil, v = lispenv->nil, d = lispenv->nil, z = lispenv->nil;
-  var(5, lispenv, &x, &f, &v, &d, &z);
-  while (!lispenv->yield) {
-	if (T(x) == ATOM)
-	  return return_value(5, assoc(x, *e, lispenv), lispenv);
-	if (T(x) != PAIR)
-	  return return_value(5, x, lispenv);
-	f = run(first(x, lispenv), e, lispenv);
-	x = next(x, lispenv);
-	z = *e;
-	e = &z;
-	if (T(f) == PRIMITIVE) {
-	  x = primitives[ord(f)].f(&x, e, lispenv);
-	  if (!primitives[ord(f)].t)
-		return return_value(5, x, lispenv);
-	}
-	else if (T(f) == CLOSURE) {
-	  v = first(first(f, lispenv), lispenv);
-	  d = next(f, lispenv);
-	  if (T(d) == NIL)
-		d = lispenv->env;
-	  for (; T(v) == PAIR && T(x) == PAIR; v = next(v, lispenv), x = next(x, lispenv)) {
-		L y = run(first(x, lispenv), e, lispenv);
-		d = env_pair(first(v, lispenv), y, &d, lispenv);
-	  }
-	  if (T(v) == PAIR) {
-		x = run(x, e, lispenv);
-		for (; T(v) == PAIR && T(x) == PAIR; v = next(v, lispenv), x = next(x, lispenv))
-		  d = env_pair(first(v, lispenv), first(x, lispenv), &d, lispenv);
-		if (T(v) == PAIR)
-		  return return_value(5, err(5), lispenv);
-	  }
-	  else if (T(x) == PAIR)
-		x = evlis(&x, e, lispenv);
-	  else if (T(x) != NIL)
-		x = run(x, e, lispenv);
-	  if (T(v) != NIL)
-		d = env_pair(v, x, &d, lispenv);
-	  x = next(first(f, lispenv), lispenv);
-	  e = &d;
-	}
-	else if (T(f) == MACRO) {
-	  d = lispenv->env;
-	  v = first(f, lispenv);
-	  for (; T(v) == PAIR && T(x) == PAIR; v = next(v, lispenv), x = next(x, lispenv))
-		d = env_pair(first(v, lispenv), first(x, lispenv), &d, lispenv);
-	  if (T(v) == PAIR)
-		return return_value(5, err(5), lispenv);
-	  if (T(v) != NIL)
-		d = env_pair(v, x, &d, lispenv);
-	  x = run(next(f, lispenv), &d, lispenv);
-	}
-	else
-	  return return_value(5, err(4), lispenv);
-  }
-  lispenv->yield=0;
-  return x;
-}
 
 
 
@@ -1293,14 +1328,19 @@ L step(L x, P e, LispEnv *lispenv) {
   L f = lispenv->nil, v = lispenv->nil, d = lispenv->nil, z = lispenv->nil;
   var(5, lispenv, &x, &f, &v, &d, &z);
   while (1) {
+	//printf("prog_index: %i\n", lispenv->prog_idx);
     if (T(x) == ATOM)
       return return_value(5, assoc(x, *e, lispenv), lispenv);
     if (T(x) != PAIR)
       return return_value(5, x, lispenv);
+
+
     f = eval(first(x, lispenv), e, lispenv);
     x = next(x, lispenv);
     z = *e;
     e = &z;
+    //debugHeapPrintType(ord(x),1, lispenv);
+
     if (T(f) == PRIMITIVE) {
       x = primitives[ord(f)].f(&x, e, lispenv);
       if (!primitives[ord(f)].t)
@@ -1355,10 +1395,12 @@ L eval(L x, P e, LispEnv *lispenv) {
   var(1, lispenv, &x);                                   /* register var x to display later again */
   y = step(x, e, lispenv);
 
-  if(lispenv->tr>1) printf("X: %i str: %s\n",ord(x), A(lispenv)+ord(x));
-  if(lispenv->tr>1) printf("Y: %i str: %s\n",ord(y), A(lispenv)+ord(y));
+  //if(lispenv->tr>1) printf("X: %i str: %s\n",ord(x), A(lispenv)+ord(x));
+  //if(lispenv->tr>1) printf("Y: %i str: %s\n",ord(y), A(lispenv)+ord(y));
   printf("\e[32m%4d: \e[33m", state.n); print(x, lispenv);       /* <vars>: unevaluated expression */
   printf("\e[36m => \e[33m");           print(y, lispenv);       /* => value of the expression */
+  //debugHeapPrint(ord(y)-20,40, lispenv);
+
   printf("\e[m\t");
   if (lispenv->tr > 1)                                   /* wait for ENTER key or other CTRL */
     while (getchar() >= ' ')

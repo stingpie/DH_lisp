@@ -1,3 +1,4 @@
 interface:test_interface,test_type,test_format,1,1
 name:main
 filename:main.lisp
+language:lisp

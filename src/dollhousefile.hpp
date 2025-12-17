@@ -26,6 +26,16 @@ int IsInSandbox(const char* filename){
 }
 
 
+enum DIBS_MODES{DONT_CARE, CAN_FILL, WANTED, NEEDED};
+typedef struct Dibs{
+	char filename[DH_FILENAME_LEN]; // DH file operations make a file buffer. This identifies the same file across two processes.
+	void *start;
+	size_t len;
+	DIBS_MODES mode;
+}Dibs;
+
+
+
 Buffer DH_read(const char* filename){
 	if(IsInSandbox(filename)){
 		Buffer new_buffer={0};
@@ -40,7 +50,7 @@ Buffer DH_read(const char* filename){
 		unsigned int size = st.st_size;
 		new_buffer.size = size;
 		new_buffer.data = (char*)calloc(sizeof(char), size);
-		fgets(new_buffer.data, size, fp);
+		fread(new_buffer.data, sizeof(char), size, fp);
 		fclose(fp);
 		return new_buffer;
 	} else{
@@ -99,6 +109,14 @@ int DH_alias(const char *filename, const char *alias){
 		return -1;
 	}
 }
+
+
+
+int DH_call_dibs(){
+
+}
+
+
 
 // too complicated and has minimal benefit.
 /*
