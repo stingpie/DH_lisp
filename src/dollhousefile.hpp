@@ -113,7 +113,7 @@ int DH_alias(const char *filename, const char *alias){
 
 
 int DH_call_dibs(){
-
+	return 0;
 }
 
 

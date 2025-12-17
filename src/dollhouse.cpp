@@ -358,7 +358,7 @@ int main(){
 	while(1){
 		cycle();
 	}
-
+	return 0;
 }
 
 #endif

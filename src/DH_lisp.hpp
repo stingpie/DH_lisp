@@ -1068,6 +1068,8 @@ void gosub(P t, P e, LispEnv *lispenv) {
 
 	  //var(1, lispenv, ast);
 
+	  f_define(&ast, e, lispenv);
+
 	  L ret = eval(ast, e, lispenv);
 
 	  free(lispenv->program_stack[lispenv->prog_stack_idx].data);
