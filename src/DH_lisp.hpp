@@ -197,7 +197,8 @@ LispEnv *NewLispEnvironment(unsigned int size, Daemon *daemon){
 	new_environment->N = size;
 	new_environment->daemon=daemon;
 	new_environment->yield = 0;
-	new_environment->output_buffer={0, nullptr};
+	new_environment->output_buffer.size=0;
+	new_environment->output_buffer.data=nullptr;
 	new_environment->see='\n';
 	new_environment->ptr="";
 	new_environment->line=NULL;
